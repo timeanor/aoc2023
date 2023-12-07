@@ -53,6 +53,11 @@ function get-partNumber($row, $col){
 
 }
 
+
+function min([object]$numbers){
+    return ($numbers | measure-object -minimum).minimum     
+}
+
 # function get-char($row, $col){
 #     return [char]$($global:matrix[$row])[$col]
 # }
@@ -74,11 +79,12 @@ $partNumberSum = 0
 
 for ( [int]$i = 0; $i -lt $global:ubound_Y ; $i++ ){   
     for ( [int]$j = 0; $j -lt $global:ubound_X; $j++ ){
-        # get-partNumber
-        # if (is_symbol(get-char($i, $j)))
-        if (is_symbol($($global:matrix[$i])[$j]))
-        { 
-            write-host "$($($global:matrix[$i])[$j])"
+        if (is_symbol($($global:matrix[$i])[$j])){ 
+
+           # jump back row line and 
+            ($($global:matrix[$i-1])[$($j-3)..$($j+3)]) | % {if(is_num($_))  }
+            
+           $($global:matrix[$i - 1])[$j - ]
             # $partNumberSum  += get-partNumber($i, $j)
 
         } 
