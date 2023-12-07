@@ -19,7 +19,8 @@ foreach ($line in $inputcontent){
     $firstLast = [int]("{0}{1}" -f $digits[0,-1])
     $sum_total_of_calibration_values += $firstLast
 
-    write-host "$($inputcontent.indexof($line)) $line $( $selectMatches.matches.value -join ",") $( $digits -join ",") $firstLast"
+    # write-host "$($inputcontent.indexof($line)) $line $( $selectMatches.matches.value -join ",") $( $digits -join ",") $firstLast"
+    write-host "$($inputcontent.indexof($line)) $line $firstLast"
 }
 
 # the sample data calcs correctly but somehow the larger input does not
