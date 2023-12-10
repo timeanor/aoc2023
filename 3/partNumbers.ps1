@@ -1,20 +1,10 @@
 
 
-class symbol {
-    [string]$str
-    $coord
-}
-class PartNumber {
-    $coords = @()
-    $cogs = @()
-    [int]$value    
-    [bool]$Cogged
-}
+$inputfiles =  "$psscriptroot\sampledata.txt", "$psscriptroot\inputData.txt"
 
-$inputfiles =  "$psscriptroot\sampledata.txt"#, "$psscriptroot\inputData.txt"
 
 foreach ( $inputfile in $inputfiles ) {
-    $partNumbers = @()
+    $parts = @()
     $symbols = @()
     $matrix = @()
     $content = Get-Content $inputfile
@@ -23,95 +13,85 @@ foreach ( $inputfile in $inputfiles ) {
     $matrix += ,".$("." * ($content[0].Length)).".ToCharArray()
 
     # populate lists of all symbols and contiguous numbers 
-    for ( [int]$i = 1; $i -lt $matrix.Length -1; $i++ )
+    for ( [int]$i = 0; $i -lt $matrix.Length -1; $i++ )
     {   
-        for ( [int]$j = 1; $j -lt $matrix[0].Length -1; $j++ )
+        for ( [int]$j = 0; $j -lt $matrix[0].Length -1; $j++ )
         {
-            if ( $matrix[$i][$j] -match "[^\d|^\.]" ){ 
-                $symbol = [symbol]::new()  
-                $symbol.str = $matrix[$i][$j]
-                $symbol.coord = @($i,$j)
-                $symbols += $symbol
+            if ( $matrix[$i][$j] -match "[^\d^\.]" ){ 
+                $symbol = [PSCustomObject]@{
+                    str = $matrix[$i][$j];
+                    coord = @($i,$j);
+                    ratio = 1
+                }
+                $symbols += ,$symbol
             }
-            $chars = ''
+           
             if ( $matrix[$i][$j] -match "\d" ){   
-                $partnumber = [partnumber]::new()
+                $part = [PSCustomObject]@{
+                    isPartnumber = $false
+                    value = ''
+                    coords = @()                    
+                    cogIndex = $null 
+                }
                 while ($matrix[$i][$j] -match "\d"){
-                    $chars += $matrix[$i][$j]
-                    $partnumber.coords += ,@($i, $j)
+                    $part.value += $matrix[$i][$j]
+                    $part.coords += ,@($i, $j)
                     $j++
                 }     
-                $partnumber.value = [int]$chars          
-                $partNumbers += $partnumber
+                $part.value = $part.value         
+                $parts +=  ,$part
+                $j--
             } 
         } 
     }   
-    $partNumber_Sum = 0 
 
     $offsets = @{
-        Vertical = @(-1,0), @(1,0)
-        left = @(-1,-1), @(-1,0), @(-1,1) 
-        right = @(1,-1), @(1,0), @(1,1)  
+        vertical = @(-1,0), @(1,0)
+        left = @(-1,-1), @(0,-1), @(1,-1) 
+        right = @(-1,1), @(0,1), @(1,1)  
     }
 
-    foreach ( $part in $partNumbers )
-    {  
-        $cogs = @()       
-        $lookat = @()          
+    foreach ( $part in $parts )
+    {     
+        $adjacentCells = @()          
         
         $y,$x = $part.coords[0]
-        $offsets.left | ForEach-Object { $lookat += ,@(( $y + @($_)[0] ),( $x + @($_)[1] ))}
+        $offsets.left | ForEach-Object { $adjacentCells += ,@(( $y + $_[0] ),( $x + $_[1] ))}
 
         $y,$x = $part.coords[-1]
-        $offsets.right | ForEach-Object { $lookat += ,@(( $y + @($_)[0] ),( $x + @($_)[1] )) } 
+        $offsets.right | ForEach-Object { $adjacentCells += ,@(( $y + $_[0] ),( $x + $_[1] ))} 
 
         $part.coords | ForEach-Object {             
-            $y,$x =( $_[0],$_[1])
-            $offsets.Vertical | ForEach-Object { $lookat += ,@(( $y + @($_)[0] ),( $x + @($_)[1] ))}
-        }
-
-        foreach ( $look in $lookat ){   
-            foreach ( $symbol in $symbols ){
-                $symbol.str
-                $part.Cogged = $symbol.str -match "\*"
-                $ySame = $look[0] -eq $symbol.coord[0]
-                $xSame = $look[1] -eq $symbol.coord[1]
-                if ($part.Cogged -and $xSame -and  $ySame ){
-                    $part.Cogged
-                    $part.cogs += ,($symbols.IndexOf($symbol))
-                }
+             $y,$x =( $_[0], $_[1] )
+             $offsets.vertical | ForEach-Object { $adjacentCells += ,@(( $y + $_[0] ),( $x + $_[1] ))}
+         }
+ 
+        foreach ( $cell in $adjacentCells){          
+            $part.isPartnumber = $part.isPartnumber -or $matrix[$cell[0]][$cell[1]] -match "[^\d^\.]"
+            
+            if ( $matrix[$cell[0]][$cell[1]] -match  "\*" ) { 
+                $symbol = $symbols | where-object { ($_.coord[0] -eq $cell[0]) -and ($_.coord[1] -eq $cell[1]) }  
+                $part.cogIndex = [int]($symbols.IndexOf($symbol))
             }
         }
-        # $lookat | % { 
-        #     $c = @(($_)[0],($_)[1])
-        #     $matrix[ $c[0]][$c[1]]
-        # }
     }
 
-
-    Foreach ($symbol in ($symbols | Where-Object { $_.str -eq "*" }) ){
-         foreach  ($part in $partNumbers) { 
-            foreach ($look in $part.offsets){
-                if( ( test-equalCoords( $symbol.coord, $look))) { $cogs += , $symbols.IndexOf($symbol) }
-            }
-         }           
-     }
-    $partNumbers | FT
-    $partNumbers | Where-Object { $_.isPartNumber } | ForEach-Object {         
-        $partNumber_Sum += $_.value 
+    $partNumber_Sum = 0 
+    $parts | Where-Object { $_.isPartNumber } | ForEach-Object {                 
+        $partNumber_Sum += [int]($_.value) 
     }
-    $gears =  $partNumbers | Where-Object { $_.isGear }
-    #part 2
-    $ratioSum = 0
-    # $prevGear = $gears[0]
-    $gearRatio = 1
+
+    $meshedGears = $parts | where-object { $_.cogIndex -ne $null } | Group-Object -Property cogIndex  | where-object count -gt 1
+    $meshedGears.group | ForEach-Object {              
+        $symbols[$_.cogIndex].ratio *= $_.value
+
+    }
+    $ratioSum = 0 
+    $symbols | where-object {$_.ratio -gt 1} | ForEach-Object { $ratioSum += $_.ratio}
 
     [pscustomobject]@{
         Input = ($inputfile -split "\\")[-1]
         NumberSum = $partNumber_Sum
         GearRatioSum = $ratioSum
-    }
-   
+    }   
 }
-
-# [pscustomobject]$partNumbers | ft
