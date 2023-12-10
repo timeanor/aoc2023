@@ -1,28 +1,18 @@
 
 
 class symbol {
-    [string]$char
-    [Coord]$coord
+    [string]$str
+    $coord
 }
 class PartNumber {
-    [coord[]]$coords
-    [int]$value
-    [bool]$cogged
-}
-class Coord{
-    [int]$y
-    [int]$x
-    Coord ([int]$Y, [int]$X){
-        $this.y = $Y
-        $this.x = $X
-    }
-}
-function resolve-vector($A,$B){
-    return ($B[1]-$A[1]),($B[0]-$A[0])     
+    $coords = @()
+    $cogs = @()
+    [int]$value    
+    [bool]$Cogged
 }
 
 $inputfiles =  "$psscriptroot\sampledata.txt"#, "$psscriptroot\inputData.txt"
-$inputfiles = 'C:\Users\tmeanor\source\repos\aoc2023\3\sampledata.txt'
+
 foreach ( $inputfile in $inputfiles ) {
     $partNumbers = @()
     $symbols = @()
@@ -39,8 +29,8 @@ foreach ( $inputfile in $inputfiles ) {
         {
             if ( $matrix[$i][$j] -match "[^\d|^\.]" ){ 
                 $symbol = [symbol]::new()  
-                $symbol.char = $matrix[$i][$j]
-                $symbol.coord = [Coord]::new($i,$j)
+                $symbol.str = $matrix[$i][$j]
+                $symbol.coord = @($i,$j)
                 $symbols += $symbol
             }
             $chars = ''
@@ -48,7 +38,7 @@ foreach ( $inputfile in $inputfiles ) {
                 $partnumber = [partnumber]::new()
                 while ($matrix[$i][$j] -match "\d"){
                     $chars += $matrix[$i][$j]
-                    $partnumber.coords += ,[Coord]::new($i,$j) 
+                    $partnumber.coords += ,@($i, $j)
                     $j++
                 }     
                 $partnumber.value = [int]$chars          
@@ -57,32 +47,55 @@ foreach ( $inputfile in $inputfiles ) {
         } 
     }   
     $partNumber_Sum = 0 
-   
-    $CoggedParts = @()
 
-    
-    $gears = $symbols | Where-Object { $_.char -eq "*" } 
     $offsets = @{
-        Vertical = @( @(-1,0), @(1,0))
-        Left     = @(@(-1,-1), @(-1,0), @(-1,1))
-        Right    = @( @(1,-1),  @(1,0), @(1,1))
-    }
-    foreach ( $part in $partNumbers[0] )
-    {  
-        foreach ($coord in $part.coords)
-        {    
-            $coord 
-            foreach ($vert in $offsets.Vertical) {             
-                $offset = [Coord]::new(($coord.y + $vert[0]), ($coord.X + $vert[1]))
-                $offset 
-                $matrix[$offset.y][$offset.x]
-                $gears | where-object {
-                    ($_.coord.y -eq $offset.y) -and ($_.coord.x -eq $offset.x)
-                }
-            }            
-        }
+        Vertical = @(-1,0), @(1,0)
+        left = @(-1,-1), @(-1,0), @(-1,1) 
+        right = @(1,-1), @(1,0), @(1,1)  
     }
 
+    foreach ( $part in $partNumbers )
+    {  
+        $cogs = @()       
+        $lookat = @()          
+        
+        $y,$x = $part.coords[0]
+        $offsets.left | ForEach-Object { $lookat += ,@(( $y + @($_)[0] ),( $x + @($_)[1] ))}
+
+        $y,$x = $part.coords[-1]
+        $offsets.right | ForEach-Object { $lookat += ,@(( $y + @($_)[0] ),( $x + @($_)[1] )) } 
+
+        $part.coords | ForEach-Object {             
+            $y,$x =( $_[0],$_[1])
+            $offsets.Vertical | ForEach-Object { $lookat += ,@(( $y + @($_)[0] ),( $x + @($_)[1] ))}
+        }
+
+        foreach ( $look in $lookat ){   
+            foreach ( $symbol in $symbols ){
+                $symbol.str
+                $part.Cogged = $symbol.str -match "\*"
+                $ySame = $look[0] -eq $symbol.coord[0]
+                $xSame = $look[1] -eq $symbol.coord[1]
+                if ($part.Cogged -and $xSame -and  $ySame ){
+                    $part.Cogged
+                    $part.cogs += ,($symbols.IndexOf($symbol))
+                }
+            }
+        }
+        # $lookat | % { 
+        #     $c = @(($_)[0],($_)[1])
+        #     $matrix[ $c[0]][$c[1]]
+        # }
+    }
+
+
+    Foreach ($symbol in ($symbols | Where-Object { $_.str -eq "*" }) ){
+         foreach  ($part in $partNumbers) { 
+            foreach ($look in $part.offsets){
+                if( ( test-equalCoords( $symbol.coord, $look))) { $cogs += , $symbols.IndexOf($symbol) }
+            }
+         }           
+     }
     $partNumbers | FT
     $partNumbers | Where-Object { $_.isPartNumber } | ForEach-Object {         
         $partNumber_Sum += $_.value 
