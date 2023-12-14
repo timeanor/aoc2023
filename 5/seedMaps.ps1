@@ -1,19 +1,26 @@
 #requires -version 7.0
+function test-InRange( $num, $low, $high ){
+    # The sample data was too easy on Powershell......
+    $geMin = $num -ge $low
+    $leMax = $num -lt $high        
+    return ( $geMin -and  $leMax ) ? ( $num - $low ),$true : $num,$false
+}
+
+function proc_ranges( $inputNum, $map ){ 
+    $t = $inputNum     
+    foreach ($instru in $map.instructions) {        
+        $pos,$inRange = test-InRange $inputNum $instru.src ($instru.src + $instru.len)
+        $t = ($inRange) ? $instru.dst + $pos : $t        
+    }
+    return $t
+}
+
 
 $inputfiles =  "$psscriptroot\sample.txt", "$psscriptroot\input.txt"
 
-function proc_ranges($inputNum, $map){    
-    foreach ($struction in $map.instructions) {
-        $range = ( $struction.src )..( $struction.src + $struction.len -1 )
-        if ($s -in $range) {
-             return $struction.dst + $range.indexof($s)
-        }     
-    } 
-    return $inputNum
-}
-
-foreach ( $inputfile in $inputfiles[1] ) 
+foreach ( $inputfile in $inputfiles ) 
 {
+#region load input
     $content = get-content $inputfile -raw
     $seeds = ($content -split "`n" | Select-Object -First 1 ) -split ":| " | Where-Object {$_} | select-object -skip 1 | ForEach-Object {[UInt32]$_}
     $rgxPattern = [regex]"(?sm)^(?<name>[\w-]*) map:\s*(?<map>(?:\d+\s*)+)"
@@ -23,9 +30,7 @@ foreach ( $inputfile in $inputfiles[1] )
     
     foreach ($match in $mapMatches) {  
         $mapGroup = $match.Groups["map"].Value -split "`r`n" | Where-Object {$_}  
-        $map = @{
-            Name = $($match.Groups["name"].Value)
-        }
+        $map = @{ Name = $($match.Groups["name"].Value) }
         $values = @()
         foreach ($item in $mapGroup){                
             $r = @($item -split " " | Where-Object {$_})            
@@ -38,21 +43,23 @@ foreach ( $inputfile in $inputfiles[1] )
         $map.instructions = $values
         $maps += ,[pscustomobject]$map
     }
+#endregion load input
 
+#region process data 
     $minLocation = @()
-    for ($i = 0; $i -lt $seeds.count; $i++)
-    { 
-        Write-Progress -Activity "Seed:  $i of $($Seeds.count)" -PercentComplete (($i / $Seeds.count) *100)  -id 1
-        $s = $seeds[$i] 
-        for ($j =0; $j -lt $maps.count; $j++)
-        {
-            $map = $maps[$j]
-            Write-Progress -Activity "map:   $($map.Name)" -PercentComplete (($maps.IndexOf($map) /$map.count) *100)  -id 2 -ParentId 1
-            $s = proc_ranges $s $map
+    foreach ( $seed in $Seeds ){       
+        $s = $seed 
+        foreach ( $map in $maps ){            
+            $s = proc_ranges $s $map 
         }
         $minLocation += ,$s
-        # write-host "seed $seed $($map.Name) location = $s`n" -NoNewline -ForegroundColor Cyan
     }
-    $minLocation | sort-object | select-object -first 1
+#endregion process data 
+#get the smallest 
 
+    [pscustomobject]@{
+        Input = ($inputfile -split "\\")[-1]
+        Part1 =  $minLocation | sort-object | select-object -first 1
+        Part2 =  $null 
+    }   
 }
