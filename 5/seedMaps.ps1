@@ -1,4 +1,5 @@
 #requires -version 7.0
+#  7.0 for heavy use of ternary operators
 #region function definitions
 function test-InRange( $num, $low, $high ){
     # The sample data was too easy on Powershell......
@@ -21,7 +22,7 @@ class SeedItem {
     [UInt32]$len
     [UInt32]$max
     [bool]$matched = $false
-    [bool]$Finished = $false
+
 #region constructors
     SeedItem () { $this.Init(@{}) }
     
@@ -47,94 +48,68 @@ class SeedItem {
     }
 
     [string] ToString() { 
-        return "{0},{1},{2},{3},{4}" -f $this.src, $this.len, $this.max, $this.matched, $this.finished
+        return "{0},{1},{2},{3},{4}" -f $this.src, $this.len, $this.max, $this.matched
     }
 #endregion
 }
 
-function Test-RangesMutEx($A, $B) {
-    $right_Of_B = $A.src -gt $B.max
-    $left_Of_B = $A.max -lt $B.src
-    return ($right_Of_B -or $left_Of_B)
-}
 
+function Test-LeftShift( $A, $B ){  return ( $A.src -lt $B.src ) -and ( $A.max -le $B.max ) }
+function Test-RightShift( $A, $B ){ return ( $A.src -ge $B.src ) -and ( $A.max -gt $B.max ) }
+function Test-MapInclusive( $A, $B ) { return ( $A.src -lt $B.src ) -and ( $A.max -gt $B.max ) }
+function Test-SeedInclusive( $A, $B ) { return ( $A.src -ge $B.src ) -and ( $A.max -le $B.max )}
+function Test-RangesMutEx( $A, $B ) { ($A.src -gt $B.max) -OR ($A.max -lt $B.src) }
 
 function Resolve-MapInclusive ([ref]$s, $m){
 #  Ss----Ms--Mm----Sm  
-#  $-----Ms           = $newItem_L
+#  $-----Ms           = $n_L
 #        Ms--Mm       = $s
-#             $----Sm = $newItem_R    
+#             $----Sm = $n_R    
+    
+    $n_L = [SeedItem]::new( $s.value.src, $m.src - $s.value.src )
+    $n_R = [SeedItem]::new( $s.value.src, $s.value.max - $m.max )
 
-    write-debug "Map inclusive  [$($s.ToString())] => "
-
-    $newItem_L = [SeedItem]::new( $s.value.src, $m.src - $s.value.src )
-    $newItem_R = [SeedItem]::new( $s.value.src, $s.value.max - $m.max )
-
-    $s.value.src = Get-NewSrcValue 
+    $s.value.src = $m.dst
     $s.value.len = $m.len
     $s.value.matched = $true 
 
-    write-debug "[$($s.value.ToString())] + [$($newItem_L.ToString())], [$($newItem_R.ToString())]" 
-    return $newItem_L, $newItem_R
+    return $n_L, $n_R
 }
+
 function Resolve-SeedInclusive ([ref]$s, $m){
 #  M----S--S----M 
 #       $--$      = $s
-
-    write-debug "Seed inclusive  [$($s.value.ToString())] => "    
-   
     $s.value.src = $s.value.src - $m.src + $m.dst   
     $s.value.matched = $true 
-    write-debug "[$($s.value.ToString())] "  
 }
  
 function Resolve-LeftShift ([ref]$s, $m){
 #  Ss----Ms--Sm----Mm 
-#  Ss---$            = $newitem
+#  Ss---$            = $n
 #        Ms--Sm      = $s 
 
-    $t = $s.value
-    write-debug "Seed Left  [$($s.value.ToString())] => "
+    $n = [SeedItem]::new( $s.value.src, $m.src - $s.value.src )
 
-    # new item of set that did not match
-    $newItem = [SeedItem]::new( $t.src, $m.src - $t.src )
+    $s.value.src = $m.dst
+    $s.value.len = $s.value.len - $n.len
+    $s.value.matched = $true  
 
-    $t.src = $m.dst
-    $t.len = $t.len - $newItem.len
-    $t.matched = $true  
-    
-    write-debug "[$($t.ToString())] + [$($newItem.ToString())]" 
-    $s.value = $t  
-    return $newItem   
-}
-
-function _calcNewLen($S, $M){
-    return [math]::mod($s.len, [math]::Abs($m.max, $s.src))
+    return $n   
 }
 
 function Resolve-RightShift ([ref]$s, $m){
 # Ms----Ss--Mm----Sm 
 #            $----Sm = $n     
 #       Ss--Mm       = $s
-#
-#  $n.src = $s.src
-#  $n.len = $s.len - ($m.max - $s.len)
 
-    $t = $s.value
-    write-debug "Seed Left [$($s.value.ToString())] => " 
+    $s.value.len = $m.max - $s.value.src
+    $s.value.matched = $true   
 
-#update new value of input item   
-    $t.len = $m.max - $t.src
-    $t.matched = $true
+    $n = [SeedItem]::new( $s.value.src,  $s.value.len - ($m.max - $s.value.src))
 
-    
-# overwrite input with new values by ref
-    $s.value = $t 
-
-    $n = [SeedItem]::new( $t.src,  $t.len - ($m.max - $t.src))
-    write-debug "[$($t.ToString())] + [$($n.ToString())]" 
     return $n
 }
+
 
 
 function resolve-seedItem(){
@@ -149,24 +124,19 @@ function resolve-seedItem(){
         
         for ( $i = 0; $i -lt $runList.Count; $i++ ) {            
             
-            if ( $runList[$i].matched ) { continue }
+            #  dont process if it matched this map
+            if ( $runList[$i].matched ) { continue }  
+            if (Test-RangesMutEx $runList[$i] $mapItem) { continue }
+            
+            # resolve the updated values and capture new sets
+            $subItem_l = ( Test-LeftShift    $runList[$i] $mapItem) ? ( Resolve-LeftShift    ([ref]$runList[$i]) $mapItem ) : $null
+            $subItem_r = ( Test-rightShift   $runList[$i] $mapItem) ? ( Resolve-RightShift   ([ref]$runList[$i]) $mapItem ) : $null
+            $subItem_x = ( Test-MapInclusive $runList[$i] $mapItem) ? ( Resolve-MapInclusive ([ref]$runList[$i]) $mapItem ) : $null
 
-            if ( (-not (Test-RangesMutEx $runList[$i] $mapItem) )){
+            $null = ( Test-SeedInclusive $runList[$i] $mapItem  )? ( Resolve-SeedInclusive ([ref]$runList[$i]) $mapItem ) : $null                
 
-                $LeftShift  =    ( $runList[$i].src -lt $mapItem.src ) -and ( $runList[$i].max -le $mapItem.max )
-                $RightShift =    ( $runList[$i].src -ge $mapItem.src ) -and ( $runList[$i].max -gt $mapItem.max )
-                $SeedInclusive = ( $runList[$i].src -ge $mapItem.src ) -and ( $runList[$i].max -le $mapItem.max )
-                $MapInclusive  = ( $runList[$i].src -lt $mapItem.src ) -and ( $runList[$i].max -gt $mapItem.max )
-                
-                $subItem_l = $LeftShift     ? ( Resolve-LeftShift    ([ref]$runList[$i]) $mapItem ) : $null
-                $subItem_r = $RightShift    ? ( Resolve-RightShift   ([ref]$runList[$i]) $mapItem ) : $null
-                $subItem_x = $MapInclusive  ? ( Resolve-MapInclusive ([ref]$runList[$i]) $mapItem ) : $null
-
-                $null = $SeedInclusive ? ( Resolve-SeedInclusive ([ref]$runList[$i]) $mapItem ) : $null                
-
-                ($subItem_r, $subItem_l, $subItem_x).Where({ $_ }).foreach({ $runList.add($_) })
-
-            } 
+            #  add new sets to the run list 
+            ($subItem_r, $subItem_l, $subItem_x).Where({ $_ }).foreach({ $runList.add($_) })
        }   
     }
     return $runList | Select-Object -skip 1
@@ -174,10 +144,9 @@ function resolve-seedItem(){
 #endregion function definitions
 
 
-
 $inputfiles =  "$psscriptroot\sample.txt", "$psscriptroot\input.txt"
 
-foreach ( $inputfile in $inputfiles[0] ) 
+foreach ( $inputfile in $inputfiles[1] ) 
 {
 #region load input
     $content = get-content $inputfile -raw
@@ -208,23 +177,21 @@ foreach ( $inputfile in $inputfiles[0] )
     }
 #endregion load input
 
-    # $seeds.add([seeditem]::new(82,1))
-    $seeds = [System.Collections.Generic.List[Object]]::new()
-    $seeds.add([seeditem]::new(74,14))
-    $holding = $seeds
-    for ($i = 0; $i -lt $seeds.count; $i++ ) {      
-        foreach ($map in $Maps){            
-            (resolve-seedItem ([ref]$holding[$i]) $map.instructions) | ForEach-Object { $holding.add($_) | out-null  }           
-            $seeds | % { $_.reset() }
-        }
-        if ($seeds[$i].finished) { continue }
+    foreach ($map in $Maps){  
+        for ($i = 0; $i -lt $seeds.count; $i++ ) {  
+            (resolve-seedItem ([ref]$seeds[$i]) $map.instructions) | ForEach-Object { $seeds.add($_) | out-null  }           
+            $seeds | ForEach-Object { $_.reset() }
+        }       
     }
-    $seeds |ft 
-
 
 #output
+$verify = 51399228
+    $min = $null 
+    $seeds.src | ForEach-Object { $min  = [math]::min(($min ?? $_),$_) }
+    $min
     [pscustomobject]@{
         Input = ($inputfile -split "\\")[-1]
-        Part2 =  $null 
+        Part2 = $min 
+        RightAnswer = $min -eq $verify 
     }   
 }
