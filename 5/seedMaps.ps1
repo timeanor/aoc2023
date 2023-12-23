@@ -1,5 +1,6 @@
 #requires -version 7.0
 #  7.0 for heavy use of ternary operators
+
 #region function definitions
 function test-InRange( $num, $low, $high ){
     # The sample data was too easy on Powershell......
@@ -53,12 +54,13 @@ class SeedItem {
 #endregion
 }
 
-
+#region relational tests
 function Test-LeftShift( $A, $B ){  return ( $A.src -lt $B.src ) -and ( $A.max -le $B.max ) }
 function Test-RightShift( $A, $B ){ return ( $A.src -ge $B.src ) -and ( $A.max -gt $B.max ) }
 function Test-MapInclusive( $A, $B ) { return ( $A.src -lt $B.src ) -and ( $A.max -gt $B.max ) }
 function Test-SeedInclusive( $A, $B ) { return ( $A.src -ge $B.src ) -and ( $A.max -le $B.max )}
 function Test-RangesMutEx( $A, $B ) { ($A.src -gt $B.max) -OR ($A.max -lt $B.src) }
+#endregion
 
 function Resolve-MapInclusive ([ref]$s, $m){
 #  Ss----Ms--Mm----Sm  
@@ -110,8 +112,6 @@ function Resolve-RightShift ([ref]$s, $m){
     return $n
 }
 
-
-
 function resolve-seedItem(){
     param(
         [Parameter()]
@@ -124,18 +124,17 @@ function resolve-seedItem(){
         
         for ( $i = 0; $i -lt $runList.Count; $i++ ) {            
             
-            #  dont process if it matched this map
+            #  dont process if it we dont need to 
             if ( $runList[$i].matched ) { continue }  
-            if (Test-RangesMutEx $runList[$i] $mapItem) { continue }
+            if ( Test-RangesMutEx $runList[$i] $mapItem) { continue }
             
             # resolve the updated values and capture new sets
             $subItem_l = ( Test-LeftShift    $runList[$i] $mapItem) ? ( Resolve-LeftShift    ([ref]$runList[$i]) $mapItem ) : $null
             $subItem_r = ( Test-rightShift   $runList[$i] $mapItem) ? ( Resolve-RightShift   ([ref]$runList[$i]) $mapItem ) : $null
             $subItem_x = ( Test-MapInclusive $runList[$i] $mapItem) ? ( Resolve-MapInclusive ([ref]$runList[$i]) $mapItem ) : $null
-
             $null = ( Test-SeedInclusive $runList[$i] $mapItem  )? ( Resolve-SeedInclusive ([ref]$runList[$i]) $mapItem ) : $null                
 
-            #  add new sets to the run list 
+            # add new sets to be processed next for this map 
             ($subItem_r, $subItem_l, $subItem_x).Where({ $_ }).foreach({ $runList.add($_) })
        }   
     }
@@ -143,10 +142,9 @@ function resolve-seedItem(){
 }
 #endregion function definitions
 
-
 $inputfiles =  "$psscriptroot\sample.txt", "$psscriptroot\input.txt"
-
-foreach ( $inputfile in $inputfiles[1] ) 
+# foreach ( $inputfile in $inputfiles[1] )     # un-comment this to use input file only
+foreach ( $inputfile in $inputfiles )          #  comment this line if above line is un-commented
 {
 #region load input
     $content = get-content $inputfile -raw
@@ -188,10 +186,9 @@ foreach ( $inputfile in $inputfiles[1] )
 $verify = 51399228
     $min = $null 
     $seeds.src | ForEach-Object { $min  = [math]::min(($min ?? $_),$_) }
-    $min
+
     [pscustomobject]@{
         Input = ($inputfile -split "\\")[-1]
-        Part2 = $min 
-        RightAnswer = $min -eq $verify 
+        minimum= $min         
     }   
 }
